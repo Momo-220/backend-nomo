@@ -1,0 +1,42 @@
+FROM node:18-alpine
+
+# Install OpenSSL and other required dependencies for Prisma
+RUN apk add --no-cache openssl libc6-compat
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source code (exclude tests)
+COPY src ./src
+COPY prisma ./prisma
+COPY tsconfig.json ./
+COPY nest-cli.json ./
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Build application
+RUN npm run build
+
+# Set environment variable for Railway
+ENV PORT=3000
+ENV NODE_ENV=production
+
+# Expose port
+EXPOSE 3000
+
+# Create simple startup script
+RUN echo '#!/bin/sh' > /app/start.sh && \
+    echo 'sleep 10' >> /app/start.sh && \
+    echo 'npx prisma migrate deploy' >> /app/start.sh && \
+    echo 'npx prisma generate' >> /app/start.sh && \
+    echo 'node dist/main' >> /app/start.sh && \
+    chmod +x /app/start.sh
+
+# Start command
+CMD ["/app/start.sh"]

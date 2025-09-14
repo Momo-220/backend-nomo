@@ -1,0 +1,267 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Multi-Tenant Architecture
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String   @db.VarChar(255)
+  slug        String   @unique @db.VarChar(100)
+  email       String   @unique @db.VarChar(255)
+  phone       String?  @db.VarChar(20)
+  address     String?  @db.Text
+  description String?  @db.Text
+  website     String?  @db.Text
+  logo_url    String?  @db.Text
+  banner_url  String?  @db.Text
+  payment_info Json?   // Stockage des informations de paiement (MyNita, Wave, Orange Money)
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  users       User[]
+  categories  Category[]
+  items       Item[]
+  tables      Table[]
+  orders      Order[]
+  payments    Payment[]
+  events      Event[]
+
+  @@map("tenants")
+}
+
+// User Management with Role-Based Access Control
+model User {
+  id          String   @id @default(cuid())
+  tenant_id   String
+  email       String   @unique @db.VarChar(255)
+  password    String   @db.VarChar(255)
+  first_name  String   @db.VarChar(100)
+  last_name   String   @db.VarChar(100)
+  role        UserRole @default(STAFF)
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  tenant      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  orders      Order[]
+  events      Event[]
+
+  @@map("users")
+  @@index([tenant_id])
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+// Menu Management
+model Category {
+  id          String   @id @default(cuid())
+  tenant_id   String
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  image_url   String?  @db.Text
+  sort_order  Int      @default(0)
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  tenant      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  items       Item[]
+
+  @@map("categories")
+  @@index([tenant_id])
+  @@index([tenant_id, sort_order])
+}
+
+model Item {
+  id           String   @id @default(cuid())
+  tenant_id    String
+  category_id  String
+  name         String   @db.VarChar(255)
+  description  String?  @db.Text
+  price        Decimal  @db.Decimal(10, 2)
+  image_url    String?  @db.Text
+  is_available Boolean  @default(true)
+  out_of_stock Boolean  @default(false)
+  sort_order   Int      @default(0)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Relations
+  tenant       Tenant      @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  category     Category    @relation(fields: [category_id], references: [id], onDelete: Cascade)
+  order_items  OrderItem[]
+
+  @@map("items")
+  @@index([tenant_id])
+  @@index([category_id])
+  @@index([tenant_id, is_available, out_of_stock])
+}
+
+// Table Management
+model Table {
+  id          String   @id @default(cuid())
+  tenant_id   String
+  number      String   @db.VarChar(10)
+  name        String?  @db.VarChar(100)
+  capacity    Int      @default(4)
+  qr_code_url String?  @db.Text
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  tenant      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  orders      Order[]
+
+  @@map("tables")
+  @@unique([tenant_id, number])
+  @@index([tenant_id])
+}
+
+// Order Management
+model Order {
+  id              String      @id @default(cuid())
+  tenant_id       String
+  table_id        String?
+  user_id         String?
+  order_number    String      @unique
+  customer_name   String?     @db.VarChar(255)
+  customer_phone  String?     @db.VarChar(20)
+  status          OrderStatus @default(PENDING)
+  payment_method  PaymentMethod @default(CASH)
+  total_amount    Decimal     @db.Decimal(10, 2)
+  notes           String?     @db.Text
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+
+  // Relations
+  tenant          Tenant      @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  table           Table?      @relation(fields: [table_id], references: [id], onDelete: SetNull)
+  user            User?       @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  order_items     OrderItem[]
+  payments        Payment[]
+  events          Event[]
+
+  @@map("orders")
+  @@index([tenant_id])
+  @@index([tenant_id, status])
+  @@index([tenant_id, created_at])
+}
+
+enum OrderStatus {
+  PENDING
+  ACCEPTED
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  MOBILE
+  WAVE
+  MYNITA
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  order_id    String
+  item_id     String
+  quantity    Int
+  unit_price  Decimal  @db.Decimal(10, 2)
+  total_price Decimal  @db.Decimal(10, 2)
+  notes       String?  @db.Text
+  created_at  DateTime @default(now())
+
+  // Relations
+  order       Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  item        Item     @relation(fields: [item_id], references: [id], onDelete: Cascade)
+
+  @@map("order_items")
+  @@index([order_id])
+  @@index([item_id])
+}
+
+// Payment Management
+model Payment {
+  id                 String        @id @default(cuid())
+  tenant_id          String
+  order_id           String
+  method             PaymentMethod
+  amount             Decimal       @db.Decimal(10, 2)
+  currency           String        @default("XOF") @db.VarChar(10)
+  status             String        @default("PENDING") @db.VarChar(20) // PENDING, SUCCESS, FAILED, CANCELLED
+  transaction_id     String?       @db.VarChar(255)
+  provider_reference String?       @db.VarChar(255)
+  provider_data      Json?
+  expires_at         DateTime?
+  created_at         DateTime      @default(now())
+  updated_at         DateTime      @updatedAt
+
+  // Relations
+  tenant             Tenant        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  order              Order         @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+  @@index([tenant_id])
+  @@index([order_id])
+  @@index([transaction_id])
+  @@index([status])
+  @@index([expires_at])
+}
+
+// Enum PaymentStatus supprimé - nous utilisons des strings maintenant
+
+// Event Logging for Audit Trail
+model Event {
+  id          String    @id @default(cuid())
+  tenant_id   String
+  user_id     String?
+  order_id    String?
+  event_type  EventType
+  description String    @db.Text
+  metadata    Json?
+  created_at  DateTime  @default(now())
+
+  // Relations
+  tenant      Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user        User?     @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  order       Order?    @relation(fields: [order_id], references: [id], onDelete: SetNull)
+
+  @@map("events")
+  @@index([tenant_id])
+  @@index([tenant_id, event_type])
+  @@index([tenant_id, created_at])
+}
+
+enum EventType {
+  USER_LOGIN
+  USER_LOGOUT
+  ORDER_CREATED
+  ORDER_UPDATED
+  ORDER_CANCELLED
+  PAYMENT_INITIATED
+  PAYMENT_COMPLETED
+  PAYMENT_FAILED
+  MENU_UPDATED
+  TABLE_UPDATED
+  SYSTEM_EVENT
+}
